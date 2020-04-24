@@ -1,0 +1,515 @@
+---
+format_version: '8'
+default_step_lib_source: https://github.com/bitrise-io/bitrise-steplib.git
+project_type: ios
+trigger_map:
+- push_branch: "*"
+  workflow: primary
+- pull_request_source_branch: "*"
+  workflow: primary
+workflows:
+  primary:
+    steps:
+    - activate-ssh-key@4.0:
+        run_if: '{{getenv "SSH_RSA_PRIVATE_KEY" | ne ""}}'
+    - git-clone@4.0: {}
+    - cocoapods-install@1.11: {}
+    - script@1.1:
+        title: Build for Testing
+        inputs:
+        - content: |
+            set -euxo pipefail
+            echo "-- build-for-testing --"
+
+            mkdir DerivedData
+
+            xcodebuild \
+            -scheme "Notes" \
+            -workspace "Notes.xcworkspace" \
+            -sdk iphonesimulator \
+            -destination "platform=iOS Simulator,name=iPhone 8,OS=latest" \
+            -derivedDataPath "${BITRISE_SOURCE_DIR}/DerivedData" \
+            build-for-testing
+    - script@1.1:
+        title: Compress Archieve Bundle
+        is_always_run: true
+        inputs:
+        - content: "set -euxo pipefail\necho \"-- compress --\"\n\nFILE=${BITRISE_SOURCE_DIR}/DerivedData/info.plist\nif
+            [ -f \"$FILE\" ]; then\n    echo \"$FILE exist\"\n    exec zip -qr \\\n
+            \     \"${BITRISE_SOURCE_DIR}/DerivedData.zip\" \\\n      \"${BITRISE_SOURCE_DIR}/DerivedData\"\nelse
+            \n    echo \"$FILE does not exist\"\nfi\n"
+    - cache-push@2.2:
+        inputs:
+        - cache_paths: |-
+            $BITRISE_SOURCE_DIR/DerivedData.zip
+            $BITRISE_SOURCE_DIR/DerivedData/Build/Products/Debug-iphonesimulator/Notes.app
+            $BITRISE_SOURCE_DIR/DerivedData/Build/Products/Debug-iphonesimulator/NotesUITests-Runner.app
+            $BITRISE_SOURCE_DIR/Notes.xcworkspace
+            $BITRISE_SOURCE_DIR/Notes.xcodeproj
+        - is_debug_mode: 'true'
+    - build-router-start@0.11:
+        inputs:
+        - access_token: "$BITRISE_API_KEY"
+        - environment_key_list: "$BITRISE_BUILD_SLUG"
+        - workflows: |-
+            tests_1
+            tests_2
+            tests_3
+            tests_4
+            tests_5
+            tests_6
+    - script@1.1:
+        title: Install Trainer
+        inputs:
+        - content: |-
+            #!/usr/bin/env bash
+            set -euxo pipefail
+
+            gem install trainer -v "0.9.1" --no-document
+    - build-router-wait@0.9:
+        inputs:
+        - access_token: "$BITRISE_API_KEY"
+    - git::https://github.com/damo1884/bitrise-collect-artifacts.git@master:
+        title: Bitrise Collect Artifacts
+        inputs:
+        - save_path: "/tmp/"
+        - access_token: "$BITRISE_API_KEY"
+    - script@1.1:
+        title: Deploy Artifacts
+        inputs:
+        - content: "#!/usr/bin/env bash\nset -euxo pipefail\n\necho \"==== MOVE FILES
+            TO DEPLOY DIR ====\"\n\necho $BITRISE_ARTIFACTS_SAVE_PATH\n\ncd $BITRISE_ARTIFACTS_SAVE_PATH\n\nFILES=`pwd`/*\nMYDIR=`pwd`/tmp/Users/vagrant/git/xcodebuild.xcresult\necho
+            $MYDIR\n\ni=1\n\nfor f in $FILES\ndo\n  if [ \"${f: -4}\" = \".zip\" ];
+            then\n    echo \"Processing $f\"\n\n    rm -f -r tmp\n    mkdir tmp\n
+            \   unzip \"TestResults${i}.zip\" -d tmp\n\n    echo \"--Trainer--\"\n\n
+            \   mkdir \"${BITRISE_TEST_RESULT_DIR}/test_${i}\"\n\n    trainer \\\n
+            \   --path \"${MYDIR}\" \\\n    --output_directory \"${BITRISE_TEST_RESULT_DIR}/test_${i}\"
+            \\\n    || :\n\n    export FAILED_REASON=\n    echo \\\n      \"{ \\\"test-name\\\":
+            \\\"Tests ${i}\\\" }\" > \\\n      \"${BITRISE_TEST_RESULT_DIR}/test_${i}/test-info.json\"\n\n
+            \   ((i++))\n    \n  fi\ndone"
+    - deploy-to-bitrise-io@1.9: {}
+    before_run: []
+  tests_1:
+    steps:
+    - cache-pull@2.1:
+        inputs:
+        - is_debug_mode: 'true'
+    - script@1.1:
+        title: Unzip Derived Data
+        inputs:
+        - content: |-
+            set -euxo pipefail
+            echo "-- unzip -- "
+
+            exec unzip \
+                "${BITRISE_SOURCE_DIR}/DerivedData.zip"
+    - script@1.1:
+        title: Test without Building
+        inputs:
+        - content: |
+            #!/usr/bin/env bash
+            # fail if any commands fails
+            set -e
+            # debug log
+            set -x
+
+            # write your script here
+            echo "-- test-without-building --"
+
+            xcodebuild \
+            -workspace "Notes.xcworkspace" \
+            -scheme "Notes" \
+            -sdk iphonesimulator \
+            -destination "platform=iOS Simulator,name=iPhone 8,OS=latest" \
+            -resultBundlePath "xcodebuild.xcresult" \
+            $XCODE_OPTIONS \
+            test-without-building
+    - script@1.1:
+        title: Compress Result Bundle
+        is_always_run: true
+        inputs:
+        - content: |-
+            set -euxo pipefail
+            echo "-- compress --"
+            cd "${BITRISE_DEPLOY_DIR}/"
+            ls
+            exec zip -qr \
+                "${BITRISE_DEPLOY_DIR}/TestResults1.zip" \
+                "/Users/vagrant/git/xcodebuild.xcresult"
+    - deploy-to-bitrise-io@1.9: {}
+    before_run: []
+  tests_2:
+    steps:
+    - cache-pull:
+        inputs:
+        - is_debug_mode: 'true'
+    - script@1.1.6:
+        title: Unzip Derived Data
+        inputs:
+        - content: |-
+            set -euxo pipefail
+            echo "-- unzip -- "
+
+            exec unzip \
+                "${BITRISE_SOURCE_DIR}/DerivedData.zip"
+    - script@1.1.6:
+        title: Test without Building
+        inputs:
+        - content: "#!/usr/bin/env bash\n# fail if any commands fails\nset -e\n# debug
+            log\nset -x \n\n# write your script here\necho \"-- test-without-building
+            --\"\n\nxcodebuild \\\n-workspace \"Notes.xcworkspace\" \\\n-scheme \"Notes\"
+            \\\n-sdk iphonesimulator \\\n-destination \"platform=iOS Simulator,name=iPhone
+            8,OS=latest\" \\\n-resultBundlePath \"xcodebuild.xcresult\" \\\n-derivedDataPath
+            \"/Users/vagrant/git/DerivedData\" \\\ntest-without-building \n"
+    - script:
+        title: Compress Result Bundle
+        is_always_run: true
+        inputs:
+        - content: |-
+            set -euxo pipefail
+            echo "-- compress --"
+            cd "${BITRISE_DEPLOY_DIR}/"
+            ls
+            exec zip -qr \
+                "${BITRISE_DEPLOY_DIR}/TestResults2.zip" \
+                "/Users/vagrant/git/xcodebuild.xcresult"
+    - deploy-to-bitrise-io: {}
+  tests_3:
+    steps:
+    - cache-pull:
+        inputs:
+        - is_debug_mode: 'true'
+    - script@1.1.6:
+        title: Unzip Derived Data
+        inputs:
+        - content: |-
+            set -euxo pipefail
+            echo "-- unzip -- "
+
+            exec unzip \
+                "${BITRISE_SOURCE_DIR}/DerivedData.zip"
+    - script@1.1.6:
+        title: Test without Building
+        inputs:
+        - content: "#!/usr/bin/env bash\n# fail if any commands fails\nset -e\n# debug
+            log\nset -x\n\n# write your script here\necho \"-- test-without-building
+            --\"\n\nxcodebuild \\\n-workspace \"Notes.xcworkspace\" \\\n-scheme \"Notes\"
+            \\\n-sdk iphonesimulator \\\n-destination \"platform=iOS Simulator,name=iPhone
+            8,OS=latest\" \\\n-resultBundlePath \"xcodebuild.xcresult\" \\\n-derivedDataPath
+            \"/Users/vagrant/git/DerivedData\" \\\ntest-without-building \n"
+    - script:
+        title: Compress Result Bundle
+        is_always_run: true
+        inputs:
+        - content: |-
+            set -euxo pipefail
+            echo "-- compress --"
+            cd "${BITRISE_DEPLOY_DIR}/"
+            ls
+            exec zip -qr \
+                "${BITRISE_DEPLOY_DIR}/TestResults3.zip" \
+                "/Users/vagrant/git/xcodebuild.xcresult"
+    - deploy-to-bitrise-io: {}
+  tests_4:
+    steps:
+    - cache-pull:
+        inputs:
+        - is_debug_mode: 'true'
+    - script@1.1.6:
+        title: Unzip Derived Data
+        inputs:
+        - content: |-
+            set -euxo pipefail
+            echo "-- unzip -- "
+
+            exec unzip \
+                "${BITRISE_SOURCE_DIR}/DerivedData.zip"
+    - script@1.1.6:
+        title: Test without Building
+        inputs:
+        - content: "#!/usr/bin/env bash\n# fail if any commands fails\nset -e\n# debug
+            log\nset -x\n\n# write your script here\necho \"-- test-without-building
+            --\"\n\nxcodebuild \\\n-workspace \"Notes.xcworkspace\" \\\n-scheme \"Notes\"
+            \\\n-sdk iphonesimulator \\\n-destination \"platform=iOS Simulator,name=iPhone
+            8,OS=latest\" \\\n-resultBundlePath \"xcodebuild.xcresult\" \\\n-derivedDataPath
+            \"/Users/vagrant/git/DerivedData\" \\\ntest-without-building \n"
+    - script:
+        title: Compress Result Bundle
+        is_always_run: true
+        inputs:
+        - content: |-
+            set -euxo pipefail
+            echo "-- compress --"
+            cd "${BITRISE_DEPLOY_DIR}/"
+            ls
+            exec zip -qr \
+                "${BITRISE_DEPLOY_DIR}/TestResults4.zip" \
+                "/Users/vagrant/git/xcodebuild.xcresult"
+    - deploy-to-bitrise-io: {}
+  tests_5:
+    steps:
+    - cache-pull:
+        inputs:
+        - is_debug_mode: 'true'
+    - script@1.1.6:
+        title: Unzip Derived Data
+        inputs:
+        - content: |-
+            set -euxo pipefail
+            echo "-- unzip -- "
+
+            exec unzip \
+                "${BITRISE_SOURCE_DIR}/DerivedData.zip"
+    - script@1.1.6:
+        title: Test without Building
+        inputs:
+        - content: "#!/usr/bin/env bash\n# fail if any commands fails\nset -e\n# debug
+            log\nset -x\n\n# write your script here\necho \"-- test-without-building
+            --\"\n\nxcodebuild \\\n-workspace \"Notes.xcworkspace\" \\\n-scheme \"Notes\"
+            \\\n-sdk iphonesimulator \\\n-destination \"platform=iOS Simulator,name=iPhone
+            8,OS=latest\" \\\n-resultBundlePath \"xcodebuild.xcresult\" \\\n-derivedDataPath
+            \"/Users/vagrant/git/DerivedData\" \\\ntest-without-building "
+    - script:
+        title: Compress Result Bundle
+        is_always_run: true
+        inputs:
+        - content: |-
+            set -euxo pipefail
+            echo "-- compress --"
+            cd "${BITRISE_DEPLOY_DIR}/"
+            ls
+            exec zip -qr \
+                "${BITRISE_DEPLOY_DIR}/TestResults5.zip" \
+                "/Users/vagrant/git/xcodebuild.xcresult"
+    - deploy-to-bitrise-io: {}
+  tests_6:
+    steps:
+    - cache-pull:
+        inputs:
+        - is_debug_mode: 'true'
+    - script@1.1.6:
+        title: Unzip Derived Data
+        inputs:
+        - content: |-
+            set -euxo pipefail
+            echo "-- unzip -- "
+
+            exec unzip \
+                "${BITRISE_SOURCE_DIR}/DerivedData.zip"
+    - script@1.1.6:
+        title: Test without Building
+        inputs:
+        - content: |
+            #!/usr/bin/env bash
+            # fail if any commands fails
+            set -e
+            # debug log
+            set -x
+
+            # write your script here
+            echo "-- test-without-building --"
+
+            xcodebuild \
+            -workspace "Notes.xcworkspace" \
+            -scheme "Notes" \
+            -sdk iphonesimulator \
+            -destination "platform=iOS Simulator,name=iPhone 8,OS=latest" \
+            -resultBundlePath "xcodebuild.xcresult" \
+            -derivedDataPath "/Users/vagrant/git/DerivedData" \
+            test-without-building
+    - script:
+        title: Compress Result Bundle
+        is_always_run: true
+        inputs:
+        - content: "set -euxo pipefail \necho \"-- compress --\"\ncd \"${BITRISE_DEPLOY_DIR}/\"\nls\nexec
+            zip -qr \\\n    \"${BITRISE_DEPLOY_DIR}/TestResults6.zip\" \\\n    \"/Users/vagrant/git/xcodebuild.xcresult\""
+    - deploy-to-bitrise-io: {}
+  no_fan_out:
+    steps:
+    - activate-ssh-key@4.0:
+        run_if: '{{getenv "SSH_RSA_PRIVATE_KEY" | ne ""}}'
+    - git-clone@4.0: {}
+    - certificate-and-profile-installer@1.10: {}
+    - cocoapods-install@1.11: {}
+    - script@1.1:
+        title: Build for Testing
+        inputs:
+        - content: |
+            #!/usr/bin/env bash
+            # fail if any commands fails
+            set -e
+            # debug log
+            set -x
+
+            # write your script here
+            echo "-- build-for-testing --"
+
+            mkdir DerivedData
+
+            xcodebuild \
+            -scheme "Notes" \
+            -workspace "Notes.xcworkspace" \
+            -sdk iphonesimulator \
+            -destination "platform=iOS Simulator,name=iPhone 8,OS=latest" \
+            -derivedDataPath "/Users/vagrant/git/DerivedData" \
+            build-for-testing
+
+            ls
+    - script@1.1:
+        title: Test without Building 1
+        inputs:
+        - content: |
+            #!/usr/bin/env bash
+            # fail if any commands fails
+            set -e
+            # debug log
+            set -x
+
+            # write your script here
+            echo "-- test-without-building --"
+
+            xcodebuild \
+            -workspace "Notes.xcworkspace" \
+            -scheme "Notes" \
+            -sdk iphonesimulator \
+            -destination "platform=iOS Simulator,name=iPhone 8,OS=latest" \
+            -resultBundlePath "xcodebuild1.xcresult" \
+            -derivedDataPath "/Users/vagrant/git/DerivedData" \
+            test-without-building
+    - script@1.1:
+        title: Test without Building 2
+        inputs:
+        - content: |
+            #!/usr/bin/env bash
+            # fail if any commands fails
+            set -e
+            # debug log
+            set -x
+
+            # write your script here
+            echo "-- test-without-building --"
+
+            xcodebuild \
+            -workspace "Notes.xcworkspace" \
+            -scheme "Notes" \
+            -sdk iphonesimulator \
+            -destination "platform=iOS Simulator,name=iPhone 8,OS=latest" \
+            -resultBundlePath "xcodebuild2.xcresult" \
+            -derivedDataPath "/Users/vagrant/git/DerivedData" \
+            test-without-building
+    - script@1.1:
+        title: Test without Building 3
+        inputs:
+        - content: |
+            #!/usr/bin/env bash
+            # fail if any commands fails
+            set -e
+            # debug log
+            set -x
+
+            # write your script here
+            echo "-- test-without-building --"
+
+            xcodebuild \
+            -workspace "Notes.xcworkspace" \
+            -scheme "Notes" \
+            -sdk iphonesimulator \
+            -destination "platform=iOS Simulator,name=iPhone 8,OS=latest" \
+            -resultBundlePath "xcodebuild3.xcresult" \
+            -derivedDataPath "/Users/vagrant/git/DerivedData" \
+            test-without-building
+    - script@1.1:
+        title: Test without Building 4
+        inputs:
+        - content: |
+            #!/usr/bin/env bash
+            # fail if any commands fails
+            set -e
+            # debug log
+            set -x
+
+            # write your script here
+            echo "-- test-without-building --"
+
+            xcodebuild \
+            -workspace "Notes.xcworkspace" \
+            -scheme "Notes" \
+            -sdk iphonesimulator \
+            -destination "platform=iOS Simulator,name=iPhone 8,OS=latest" \
+            -resultBundlePath "xcodebuild4.xcresult" \
+            -derivedDataPath "/Users/vagrant/git/DerivedData" \
+            test-without-building
+    - script@1.1:
+        title: Test without Building 5
+        inputs:
+        - content: |
+            #!/usr/bin/env bash
+            # fail if any commands fails
+            set -e
+            # debug log
+            set -x
+
+            # write your script here
+            echo "-- test-without-building --"
+
+            xcodebuild \
+            -workspace "Notes.xcworkspace" \
+            -scheme "Notes" \
+            -sdk iphonesimulator \
+            -destination "platform=iOS Simulator,name=iPhone 8,OS=latest" \
+            -resultBundlePath "xcodebuild5.xcresult" \
+            -derivedDataPath "/Users/vagrant/git/DerivedData" \
+            test-without-building
+    - script@1.1:
+        title: Test without Building 6
+        inputs:
+        - content: |-
+            #!/usr/bin/env bash
+            # fail if any commands fails
+            set -e
+            # debug log
+            set -x
+
+            # write your script here
+            echo "-- test-without-building --"
+
+            xcodebuild \
+            -workspace "Notes.xcworkspace" \
+            -scheme "Notes" \
+            -sdk iphonesimulator \
+            -destination "platform=iOS Simulator,name=iPhone 8,OS=latest" \
+            -resultBundlePath "xcodebuild6.xcresult" \
+            -derivedDataPath "/Users/vagrant/git/DerivedData" \
+            test-without-building
+    - script@1.1:
+        title: Install Trainer
+        inputs:
+        - content: |-
+            #!/usr/bin/env bash
+            set -euxo pipefail
+
+            gem install trainer -v "0.9.1" --no-document
+    - script@1.1:
+        inputs:
+        - content: "#!/usr/bin/env bash\nset -euxo pipefail\n\necho \"==== MOVE FILES
+            TO DEPLOY DIR ====\"\n\nFILES=`pwd`/*\n\ni=1\n\nfor f in $FILES\ndo\n
+            \ if [ \"${f: -8}\" = \"xcresult\" ]; then\n    echo \"Processing $f\"\n\n
+            \   echo \"--Trainer--\"\n\n    mkdir \"${BITRISE_TEST_RESULT_DIR}/test_${i}\"\n\n
+            \   trainer \\\n    --path \"${f}\" \\\n    --output_directory \"${BITRISE_TEST_RESULT_DIR}/test_${i}\"
+            \\\n    || :\n\n    echo \\\n      \"{ \\\"test-name\\\": \\\"Tests ${i}\\\"
+            }\" > \\\n      \"${BITRISE_TEST_RESULT_DIR}/test_${i}/test-info.json\"\n\n
+            \   ((i++))\n    \n  fi\ndone"
+        title: Deploy Artifacts
+    - deploy-to-bitrise-io@1.9: {}
+    before_run: []
+app:
+  envs:
+  - opts:
+      is_expand: false
+    BITRISE_PROJECT_PATH: Notes.xcworkspace
+  - opts:
+      is_expand: false
+    BITRISE_SCHEME: Notes
+  - opts:
+      is_expand: false
+    BITRISE_EXPORT_METHOD: development
