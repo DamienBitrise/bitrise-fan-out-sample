@@ -69,7 +69,7 @@ workflows:
     - build-router-wait@0.9:
         inputs:
         - access_token: "$BITRISE_API_KEY"
-    - git::https://github.com/damo1884/bitrise-collect-artifacts.git@master:
+    - git::https://github.com/DamienBitrise/bitrise-collect-artifacts.git@master:
         title: Bitrise Collect Artifacts
         inputs:
         - save_path: "/tmp/"
