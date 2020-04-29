@@ -3,7 +3,7 @@ Simple example of using bitrise to run parallel iOS tests
 
 ## Step 1
 
-Clone the following repository into your own GitHub account
+Fork the following repository into your own GitHub account
 
 - https://github.com/DamienBitrise/medium-ios-automated-testing-fastlane
 
